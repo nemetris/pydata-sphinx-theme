@@ -98,49 +98,59 @@ def add_toctree_functions(app, pagename, templatename, context, doctree):
 
         soup = bs(context["toc"], "html.parser")
 
+        def get_api_toc_pos(ul):
+            for li in ul("li", recursive=False):
+                _ul = li.find("ul", recursive=False)
+                if _ul:
+                    return _ul
+                _ul = bs("", "html.parser").new_tag("ul")
+                _ul["class"] = ["visible"]
+                li.append(_ul)
+                return _ul
+
+        def get_api_references():
+            body = bs(context["body"], "html.parser")
+            module = body.find(id=re.compile("module-"))
+            if module:
+                module_prefix = module["id"].split("-")[-1]
+                return [
+                    ref["href"] for ref in module.find_all(href=re.compile(f"#{module_prefix}"))
+                    if ref["class"][0] == "headerlink"
+                ]
+
+        def add_api_level_recursive(ul, refs, level):
+            if level > (context["theme_show_toc_level"] + 1):
+                return
+
+            soup = bs("", "html.parser")
+            for i, ref in enumerate(refs, 0):
+                # add toc entry
+                toc_li = soup.new_tag("li")
+                toc_li["class"] = toc_li.get("class", []) + [f"toc-h{level+1}"]
+                toc_li_link = soup.new_tag("a")
+                toc_li_link["class"] = ["reference", "internal"]
+                toc_li_link["href"] = f"{ref}"
+                toc_li_link.string = ref.split(".")[-1]
+                toc_li.append(toc_li_link)
+                ul.append(toc_li)
+
+                # further toc level entries left?
+                sublevel_refs = [
+                    x for x in refs[i + 1:]
+                    if len(x.split(".")) > level + 1 and x.startswith(ref + ".")
+                ]
+                if sublevel_refs:
+                    _ul = soup.new_tag("ul")
+                    _ul["class"] = _ul.get("class", []) + ["visible"]
+                    toc_li.append(_ul)
+                    add_api_level_recursive(_ul, sublevel_refs, level + 1)
+
+                # remove already prepared sublevel references from list
+                for j in range(len(sublevel_refs)):
+                    del refs[i + 1]
+
         # Add toc-hN + visible classes
         def add_header_level_recursive(ul, level):
-
-            def get_api_references():
-                body = bs(context["body"], "html.parser")
-                module = body.find(id=re.compile("module-"))
-                if module:
-                    module_prefix = module["id"].split("-")[-1]
-                    return [
-                        ref["href"] for ref in module.find_all(href=re.compile(f"#{module_prefix}"))
-                        if ref["class"][0] == "headerlink"
-                    ]
-
-            def add_api_level_recursive(li, refs, level):
-                if not refs or level > (context["theme_show_toc_level"] + 1):
-                    return
-
-                soup = bs("", "html.parser")
-                next_toc_level = soup.new_tag("ul")
-                next_toc_level["class"] = next_toc_level.get("class", []) + ["visible"]
-                for i, ref in enumerate(refs, 0):
-                    # add toc entry
-                    toc_li = soup.new_tag("li")
-                    toc_li["class"] = toc_li.get("class", []) + [f"toc-h{level+1}"]
-                    toc_li_link = soup.new_tag("a")
-                    toc_li_link["class"] = ["reference", "internal"]
-                    toc_li_link["href"] = f"{ref}"
-                    toc_li_link.string = ref.split(".")[-1]
-                    toc_li.append(toc_li_link)
-                    next_toc_level.append(toc_li)
-                    li.append(next_toc_level)
-
-                    # further toc level entries left?
-                    sublevel_refs = [
-                        x for x in refs[i + 1:]
-                        if len(x.split(".")) > level + 1 and x.startswith(ref + ".")
-                    ]
-                    add_api_level_recursive(toc_li, sublevel_refs, level + 1)
-
-                    # remove already prepared sublevel references from list
-                    for j in range(len(sublevel_refs)):
-                        del refs[i + 1]
-
             if level <= (context["theme_show_toc_level"] + 1):
                 ul["class"] = ul.get("class", []) + ["visible"]
             for li in ul("li", recursive=False):
@@ -149,10 +159,11 @@ def add_toctree_functions(app, pagename, templatename, context, doctree):
                 if ul:
                     add_header_level_recursive(ul, level + 1)
 
-                references = get_api_references()
-                add_api_level_recursive(li, references, level)
-
         add_header_level_recursive(soup.find("ul"), 1)
+        references = get_api_references()
+        if references:
+            ul = get_api_toc_pos(soup.find("ul"))
+            add_api_level_recursive(ul, references, 1)
 
         # Add in CSS classes for bootstrap
         for ul in soup("ul"):
